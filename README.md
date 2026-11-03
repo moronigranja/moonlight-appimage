@@ -47,6 +47,17 @@ the Linux runtime can actually open at launch. Where the runtime has no GPU deco
 software decoding; choose **Video codec = H.264** and **Decoder = Software** in Moonlight's settings if
 software HEVC/AV1 is too slow.
 
+### Audio
+
+Moonlight opens the PulseAudio device the Linux runtime exposes. Where the runtime's PulseAudio server
+has no sink at all (it then reports `Default Sink: (null)`), the stream still starts and video plays,
+but Moonlight logs `Failed to open audio device: No default audio device available` and stays silent.
+The sink has to exist in the runtime — the image cannot invent one.
+
+Older builds of this image died with SIGSEGV in that situation, because SDL's PulseAudio backend
+passed the NULL default device names to `SDL_strdup()`; `patches/0002-sdl-pulse-default-guard.patch`
+removes that crash.
+
 ## Rebuild / bump
 
 Run the **Build - Linux AppImage (aarch64)** workflow with a new `tag` input, or push a `v*` tag.
