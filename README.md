@@ -17,10 +17,16 @@ Moonlight is licensed under GPL-3.0. The corresponding source for every binary p
 
 - the upstream repository at the built tag:
   `https://github.com/moonlight-stream/moonlight-qt/tree/v6.2.0`, and
-- the single patch applied to it before building:
-  [`patches/0001-apprun-prefer-x11.patch`](patches/0001-apprun-prefer-x11.patch) in this repository
-  (sets `SDL_VIDEODRIVER=x11` in the AppRun when an X server is reachable, matching the UI backend
-  this AppImage is built with).
+- the patches applied to it before building, both in this repository:
+  - [`patches/0001-apprun-prefer-x11.patch`](patches/0001-apprun-prefer-x11.patch) — sets
+    `SDL_VIDEODRIVER=x11` in the AppRun when an X server is reachable, matching the UI backend this
+    AppImage is built with.
+  - [`patches/0002-sdl-pulse-default-guard.patch`](patches/0002-sdl-pulse-default-guard.patch) — applied to SDL 3.4.18
+    before it is built. SDL's PulseAudio backend hands the server's default sink/source names to
+    `SDL_strdup()`/`SDL_strcmp()` unchecked, so it segfaults against a PulseAudio server that has no
+    sinks or sources (such a server reports NULL names). DroidDeck's Linux runtime runs exactly such
+    a server, which is why unpatched Moonlight dies with SIGSEGV as soon as a stream starts and audio
+    is initialised.
 
 Everything else in the image comes from those sources and the pinned dependency revisions in the
 workflow.

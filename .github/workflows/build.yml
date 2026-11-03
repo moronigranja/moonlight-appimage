@@ -73,11 +73,26 @@ jobs:
 
       - name: Build SDL3
         run: |
+          git -C deps/SDL apply --check "$GITHUB_WORKSPACE/patches/0002-sdl-pulse-default-guard.patch"
+          git -C deps/SDL apply "$GITHUB_WORKSPACE/patches/0002-sdl-pulse-default-guard.patch"
           cmake -DSDL_KMSDRM=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_INSTALL_DOCS=OFF \
             -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON -S deps/SDL -B deps/SDL/build
           cmake --build deps/SDL/build -j"$(nproc)"
           sudo cmake --install deps/SDL/build
           sudo ldconfig
+
+      # DroidDeck's Linux runtime runs a PulseAudio server with no sinks or sources, so it reports
+      # NULL default device names. SDL 3.4's pulse backend passed those to SDL_strdup() and died.
+      # Reproduce that exact server here: -n skips the default config, so no sink is auto-created.
+      - name: Check SDL3 against a sink-less PulseAudio server
+        run: |
+          sudo apt-get install -y --no-install-recommends pulseaudio pulseaudio-utils
+          pulseaudio -n --daemonize=yes --exit-idle-time=-1 --load="module-native-protocol-unix"
+          pulseaudio --check || { echo "pulseaudio did not start"; exit 1; }
+          pactl info | grep -q 'Default Sink: (null)' || { echo "expected a server without a default sink"; pactl info; exit 1; }
+          gcc -O1 -o /tmp/sdl-audio-probe tests/sdl-audio-probe.c $(pkg-config --cflags --libs sdl3)
+          SDL_AUDIODRIVER=pulseaudio /tmp/sdl-audio-probe
+          pulseaudio --kill || true
 
       - name: Checkout sdl2-compat
         uses: actions/checkout@v5

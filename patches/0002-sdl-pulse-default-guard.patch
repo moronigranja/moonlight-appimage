@@ -1,0 +1,33 @@
+diff --git a/src/audio/pulseaudio/SDL_pulseaudio.c b/src/audio/pulseaudio/SDL_pulseaudio.c
+index 2fcf078..dd9bc19 100644
+--- a/src/audio/pulseaudio/SDL_pulseaudio.c
++++ b/src/audio/pulseaudio/SDL_pulseaudio.c
+@@ -882,7 +882,7 @@ static void ServerInfoCallback(pa_context *c, const pa_server_info *i, void *dat
+ {
+     //SDL_Log("PULSEAUDIO ServerInfoCallback!");
+ 
+-    if (!default_sink_path || (SDL_strcmp(default_sink_path, i->default_sink_name) != 0)) {
++    if (i->default_sink_name && (!default_sink_path || (SDL_strcmp(default_sink_path, i->default_sink_name) != 0))) {
+         char *str = SDL_strdup(i->default_sink_name);
+         if (str) {
+             SDL_free(default_sink_path);
+@@ -891,7 +891,7 @@ static void ServerInfoCallback(pa_context *c, const pa_server_info *i, void *dat
+         }
+     }
+ 
+-    if (!default_source_path || (SDL_strcmp(default_source_path, i->default_source_name) != 0)) {
++    if (i->default_source_name && (!default_source_path || (SDL_strcmp(default_source_path, i->default_source_name) != 0))) {
+         char *str = SDL_strdup(i->default_source_name);
+         if (str) {
+             SDL_free(default_source_path);
+@@ -987,8 +987,8 @@ static int SDLCALL HotplugThread(void *data)
+         // Update default devices; don't hold the pulse lock during this, since it could deadlock vs a playing device that we're about to lock here.
+         bool check_default_sink = default_sink_changed;
+         bool check_default_source = default_source_changed;
+-        char *current_default_sink = check_default_sink ? SDL_strdup(default_sink_path) : NULL;
+-        char *current_default_source = check_default_source ? SDL_strdup(default_source_path) : NULL;
++        char *current_default_sink = (check_default_sink && default_sink_path) ? SDL_strdup(default_sink_path) : NULL;
++        char *current_default_source = (check_default_source && default_source_path) ? SDL_strdup(default_source_path) : NULL;
+         default_sink_changed = default_source_changed = false;
+         PULSEAUDIO_pa_threaded_mainloop_unlock(pulseaudio_threaded_mainloop);
+         check_default_sink = CheckDefaultDevice(check_default_sink, current_default_sink);
