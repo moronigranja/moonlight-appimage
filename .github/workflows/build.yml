@@ -1,0 +1,241 @@
+name: Build - Linux AppImage (aarch64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: moonlight-qt tag to build
+        required: true
+        default: v6.2.0
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  MOONLIGHT_REPO: moonlight-stream/moonlight-qt
+  MOONLIGHT_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  SDL_REF: release-3.4.18
+  SDL2COMPAT_REF: release-2.32.74
+  SDL_TTF_REF: a883e490e30fb44a5336ea3dcb990c6982c5216f
+  LIBVA_REF: 2.24.1
+  LIBPLACEBO_REF: 92b5ac6db79f4d680eb656692f7bf51e9606f42a
+  DAV1D_REF: 1.5.4
+  FFMPEG_REF: n9.0.2
+  APPIMAGE_EXTRACT_AND_RUN: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout build files
+        uses: actions/checkout@v5
+
+      - name: Resolve version
+        run: |
+          v="${MOONLIGHT_TAG#v}"
+          echo "MOONLIGHT_VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Checkout Moonlight source
+        uses: actions/checkout@v5
+        with:
+          repository: moonlight-stream/moonlight-qt
+          ref: ${{ env.MOONLIGHT_TAG }}
+          path: src
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install build packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake meson ninja-build pkg-config autoconf automake libtool nasm \
+            qt6-base-dev qt6-declarative-dev qt6-declarative-dev-tools libqt6svg6-dev \
+            qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-templates \
+            qml6-module-qtquick-layouts qml6-module-qtquick-window qml6-module-qtqml-workerscript \
+            libssl-dev libfreetype-dev libharfbuzz-dev libasound2-dev libdbus-1-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev libglu1-mesa-dev libgl-dev \
+            libgbm-dev libdrm-dev libvulkan-dev glslang-tools spirv-tools libshaderc-dev \
+            libibus-1.0-dev libpulse-dev libudev-dev libpipewire-0.3-dev liburing-dev \
+            libx11-dev libxcursor-dev libxext-dev libxi-dev libxinerama-dev libxkbcommon-dev \
+            libxrandr-dev libxss-dev libxt-dev libxv-dev libxxf86vm-dev libxcb-dri3-dev \
+            libx11-xcb-dev libxfixes-dev libxtst-dev wayland-protocols \
+            libopus-dev libvdpau-dev liblcms2-dev libxxhash-dev
+
+      - name: Checkout SDL3
+        uses: actions/checkout@v5
+        with:
+          repository: libsdl-org/SDL
+          ref: ${{ env.SDL_REF }}
+          path: deps/SDL
+
+      - name: Build SDL3
+        run: |
+          cmake -DSDL_KMSDRM=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_INSTALL_DOCS=OFF \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON -S deps/SDL -B deps/SDL/build
+          cmake --build deps/SDL/build -j"$(nproc)"
+          sudo cmake --install deps/SDL/build
+          sudo ldconfig
+
+      - name: Checkout sdl2-compat
+        uses: actions/checkout@v5
+        with:
+          repository: libsdl-org/sdl2-compat
+          ref: ${{ env.SDL2COMPAT_REF }}
+          path: deps/sdl2-compat
+
+      - name: Build sdl2-compat
+        run: |
+          cmake -DSDL2COMPAT_TESTS=OFF -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
+            -S deps/sdl2-compat -B deps/sdl2-compat/build
+          cmake --build deps/sdl2-compat/build -j"$(nproc)"
+          sudo cmake --install deps/sdl2-compat/build
+          sudo ldconfig
+
+      - name: Checkout SDL_ttf
+        uses: actions/checkout@v5
+        with:
+          repository: libsdl-org/SDL_ttf
+          ref: ${{ env.SDL_TTF_REF }}
+          path: deps/SDL_ttf
+          submodules: recursive
+
+      - name: Build SDL_ttf
+        working-directory: deps/SDL_ttf
+        run: |
+          ./autogen.sh
+          ./configure
+          make -j"$(nproc)"
+          sudo make install
+          sudo ldconfig
+
+      - name: Checkout libva
+        uses: actions/checkout@v5
+        with:
+          repository: intel/libva
+          ref: ${{ env.LIBVA_REF }}
+          path: deps/libva
+
+      - name: Build libva
+        working-directory: deps/libva
+        run: |
+          ./autogen.sh
+          ./configure --enable-x11=yes --enable-glx=no --enable-drm=no --enable-wayland=no
+          make -j"$(nproc)"
+          sudo make install
+          sudo ldconfig
+
+      - name: Checkout libplacebo
+        uses: actions/checkout@v5
+        with:
+          repository: haasn/libplacebo
+          ref: ${{ env.LIBPLACEBO_REF }}
+          path: deps/libplacebo
+          submodules: recursive
+
+      - name: Build libplacebo
+        run: |
+          git -C deps/libplacebo apply \
+            "$GITHUB_WORKSPACE/src/app/deploy/linux/appimage/libplacebo-disable-internally-synchronized-queues.patch"
+          meson setup deps/libplacebo/build deps/libplacebo -Dvulkan=enabled -Dopengl=disabled -Ddemos=false
+          ninja -C deps/libplacebo/build
+          sudo ninja -C deps/libplacebo/build install
+          sudo ldconfig
+
+      - name: Build dav1d
+        working-directory: deps
+        run: |
+          git clone --branch "$DAV1D_REF" --depth 1 https://code.videolan.org/videolan/dav1d.git
+          meson setup dav1d/build dav1d -Ddefault_library=static -Dbuildtype=release \
+            -Denable_tools=false -Denable_tests=false
+          ninja -C dav1d/build
+          sudo ninja -C dav1d/build install
+          sudo ldconfig
+
+      - name: Checkout FFmpeg
+        uses: actions/checkout@v5
+        with:
+          repository: FFmpeg/FFmpeg
+          ref: ${{ env.FFMPEG_REF }}
+          path: deps/FFmpeg
+
+      - name: Build FFmpeg
+        working-directory: deps/FFmpeg
+        run: |
+          ./configure --enable-pic --enable-lto --disable-static --enable-shared --disable-all --disable-autodetect \
+            --enable-avcodec --enable-avformat --enable-swscale \
+            --enable-decoder=h264 --enable-decoder=hevc --enable-decoder=av1 \
+            --enable-vaapi --enable-hwaccel=h264_vaapi --enable-hwaccel=hevc_vaapi --enable-hwaccel=av1_vaapi \
+            --enable-vdpau --enable-hwaccel=h264_vdpau --enable-hwaccel=hevc_vdpau --enable-hwaccel=av1_vdpau \
+            --enable-libdrm --enable-vulkan --enable-hwaccel=h264_vulkan --enable-hwaccel=hevc_vulkan --enable-hwaccel=av1_vulkan \
+            --enable-libdav1d --enable-decoder=libdav1d
+          make -j"$(nproc)"
+          sudo make install
+          sudo ldconfig
+
+      - name: Install linuxdeploy
+        run: |
+          mkdir -p dep_root/bin
+          curl -fsSL -o dep_root/bin/linuxdeploy-aarch64.AppImage \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-aarch64.AppImage
+          curl -fsSL -o dep_root/bin/linuxdeploy-plugin-qt-aarch64.AppImage \
+            https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-aarch64.AppImage
+          chmod +x dep_root/bin/linuxdeploy-*.AppImage
+          ln -sf linuxdeploy-plugin-qt-aarch64.AppImage dep_root/bin/linuxdeploy-plugin-qt
+          echo "$PWD/dep_root/bin" >> "$GITHUB_PATH"
+
+      - name: Build AppImage
+        working-directory: src
+        env:
+          CI_VERSION: ${{ env.MOONLIGHT_VERSION }}
+        run: |
+          git apply --check "$GITHUB_WORKSPACE/patches/0001-apprun-prefer-x11.patch"
+          git apply "$GITHUB_WORKSPACE/patches/0001-apprun-prefer-x11.patch"
+          sudo ldconfig
+          ./scripts/build-appimage.sh
+
+      - name: Check the AppImage
+        working-directory: src/build
+        run: |
+          cd installer-release
+          img=$(ls Moonlight-*.AppImage)
+          final="Moonlight-${MOONLIGHT_VERSION}-aarch64.AppImage"
+          [ "$img" = "$final" ] || mv "$img" "$final"
+          readelf -h "$final" | grep -q 'Machine:.*AArch64'
+          python3 - "$final" <<'PY'
+          import sys
+          head = open(sys.argv[1], "rb").read(20)
+          assert head[:4] == b"\x7fELF", head[:4]
+          assert head[8:10] == b"AI" and head[10] == 2, head[:11]
+          assert int.from_bytes(head[18:20], "little") == 0xB7, head[18:20]
+          PY
+          test -n "$(find ../deploy-release -name libqxcb.so -print -quit)"
+          test -z "$(find ../deploy-release -name 'libqwayland*' -print -quit)"
+          grep -q 'SDL_VIDEODRIVER=x11' ../deploy-release/AppRun
+          sha256sum "$final" > "$final.sha256"
+          cat "$final.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: Moonlight-${{ env.MOONLIGHT_VERSION }}-aarch64
+          path: src/build/installer-release/Moonlight-*-aarch64.AppImage*
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=(
+            "src/build/installer-release/Moonlight-${MOONLIGHT_VERSION}-aarch64.AppImage"
+            "src/build/installer-release/Moonlight-${MOONLIGHT_VERSION}-aarch64.AppImage.sha256"
+          )
+          if gh release view "$MOONLIGHT_TAG" >/dev/null 2>&1; then
+            gh release upload "$MOONLIGHT_TAG" "${files[@]}" --clobber
+          else
+            gh release create "$MOONLIGHT_TAG" "${files[@]}" \
+              --title "Moonlight ${MOONLIGHT_VERSION} (aarch64 AppImage)" \
+              --notes-file RELEASE.md
+          fi
