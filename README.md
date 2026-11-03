@@ -33,6 +33,14 @@ workflow.
 DroidDeck downloads this repository's newest release asset, unpacks it once into the Linux runtime
 (`/opt/appimages/user/<dir>`) and adds a menu entry. The image is not re-extracted on every launch.
 
+### Decoding
+
+The image is built with VA-API, Vulkan video and VDPAU decoding enabled, and Moonlight picks whichever
+the Linux runtime can actually open at launch. Where the runtime has no GPU decoder driver it prints
+"No functioning hardware accelerated video decoder was detected" once and falls back to FFmpeg
+software decoding; choose **Video codec = H.264** and **Decoder = Software** in Moonlight's settings if
+software HEVC/AV1 is too slow.
+
 ## Rebuild / bump
 
 Run the **Build - Linux AppImage (aarch64)** workflow with a new `tag` input, or push a `v*` tag.
