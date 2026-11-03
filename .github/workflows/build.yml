@@ -164,7 +164,7 @@ jobs:
           curl -fsSL -o /tmp/vulkan-headers.tar.gz \
             "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/${VULKAN_HEADERS_REF}.tar.gz"
           tar -xzf /tmp/vulkan-headers.tar.gz -C /tmp
-          sudo cp -a /tmp/Vulkan-Headers-*/include/vulkan /usr/local/include/
+          sudo cp -a /tmp/Vulkan-Headers-*/include/. /usr/local/include/
           sudo mkdir -p /usr/local/lib/pkgconfig
           printf '%s\n' \
             'prefix=/usr/local' \
